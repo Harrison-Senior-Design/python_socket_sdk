@@ -3,7 +3,7 @@ from core.socket import Socket
 def main():
 	socket = Socket("tcp://127.0.0.1:5556")
 
-	print(f"Connecting to {socket.addr}")
+	print(f"Connecting to {socket.addr} with type {socket.SOCKET_TYPE}")
 	socket.connect()
 
 	while True:
