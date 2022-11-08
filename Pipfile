@@ -5,6 +5,8 @@ name = "pypi"
 
 [packages]
 pyzmq = "*"
+protobuf = "*"
+pyee = "*"
 
 [dev-packages]
 
