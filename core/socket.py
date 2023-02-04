@@ -1,41 +1,75 @@
 import zmq
-from core.protobuf_files.generated import main_pb2, simulationMessages_pb2
-from pyee import EventEmitter
+import threading
+import time
 
+import core.protobuf_files.generated.main_pb2 as main_proto
+import core.protobuf_files.generated.hardwareMessages_pb2 as hardware_proto
+import core.protobuf_files.generated.simulationMessages_pb22 as simulation_proto
+
+class Emitter:
+    def __init__(self):
+        self.listeners = {}
+        
+    def on(self, event, listener):
+        if event not in self.listeners:
+            self.listeners[event] = []
+        self.listeners[event].append(listener)
+        
+    def emit(self, event_name, *args):
+        if event_name not in self.handlers:
+            return
+
+        for handler in self.handlers[event_name]:
+            handler(*args)
 
 class Socket:
-    SOCKET_TYPE = zmq.ROUTER
+    SOCKET_TYPE = zmq.DEALER
 
-    def __init__(self, addr):
-        self.addr = addr
+    def __init__(self, address):
+        self.context = zmq.Context()
+        self.socket = self.context.socket(Socket.SOCKET_TYPE)
+        self.socket.connect(address)
         self.emitter = EventEmitter()
+        self.running = False
+        self.thread = None
 
-        ctx = zmq.Context()
-        self.socket = ctx.socket(Socket.SOCKET_TYPE)
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._receive)
+        self.thread.start()
 
-    def connect(self):
-        self.socket.bind(self.addr)
+    def stop(self):
+        self.running = False
+        self.thread.join()
 
-    async def recv_handler(self) -> main_pb2.Wrapper:
-        data = self.socket.recv()
+    def _receive(self):
+        while self.running:
+            msg = self.socket.recv_multipart()
 
-        wrapped_message = main_pb2.Wrapper()
+            if len(msg) < 2:
+                continue
+            identity, message = msg[0], msg[1:]
 
-        wrapped_message.ParseFromString(data)
+            wrapper = main_proto.Wrapper()
+            wrapper.ParseFromString(message[0])
+            
+            if wrapper.opcode == main_proto.OperationCode.ANGLE_DATA:
+                payload = simulation_proto.AnglePayload()
+                wrapper.payload.Unpack(payload)
+                self.emitter.emit("angle", payload)
+            elif wrapper.opcode == main_proto.OperationCode.MOVE_STARTING_LOCATION:
+                payload = hardware_proto.MoveStarterLocationPayload()
+                wrapper.payload.Unpack(payload)
+                self.emitter.emit("move_starter_location", payload)
+            else:
+                self.emitter.emit("unknown_payload", wrapped_message)
+    
+    def send_message(self, opcode, payload):
+        wrapper = Main.Wrapper(
+            opcode=opcode,
+            timestamp=0,
+            payload=Any(value=payload.SerializeToString())
+        )
 
-        self.emitter.emit("message", wrapped_message)
-
-        opcode = wrapped_message.opcode
-
-        if opcode == main_pb2.OperationCode.ANGLE_DATA:
-            payload = simulationMessages_pb2.AnglePayload()
-            wrapped_message.payload.Unpack(payload)
-
-            self.emitter.emit("angle", payload)
-        elif opcode == main_pb2.OperationCode.MOVE_STARTING_LOCATION:
-            payload = simulationMessages_pb2.AnglePayload()
-            wrapped_message.payload.Unpack(payload)
-
-            self.emitter.emit("move_starting_location", payload)
-        else:
-            self.emitter.emit("unknown_payload", wrapped_message)
+        self.socket.send_multipart(wrapper.SerializeToString())
+        
