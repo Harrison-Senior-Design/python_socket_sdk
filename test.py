@@ -6,14 +6,11 @@ socket = Socket("tcp://127.0.0.1:5556")
 def handle_angle_payload(payload):
     print(f"angle handler: {payload.angle}")
 
-async def main():
-    print(f"Connecting to {socket.addr} with type {socket.SOCKET_TYPE}")
+def main():
+    print(f"Connecting to {socket.address} with type {socket.SOCKET_TYPE}")
 
     # Start the receiver thread
     socket.start()
-
     
-
-
 if __name__ == '__main__':
     main()

@@ -4,23 +4,31 @@ import time
 
 import core.protobuf_files.generated.main_pb2 as main_proto
 import core.protobuf_files.generated.hardwareMessages_pb2 as hardware_proto
-import core.protobuf_files.generated.simulationMessages_pb22 as simulation_proto
+import core.protobuf_files.generated.simulationMessages_pb2 as simulation_proto
 
 class Emitter:
     def __init__(self):
-        self.listeners = {}
+        self._listeners = {}
+
+    def on(self, event=None, listener=None):
+        def wrapper(listener):
+            if event not in self._listeners:
+                self._listeners[event] = []
+            self._listeners[event].append(listener)
+            
+            return listener
+
+        if listener:
+            return wrapper(listener)
         
-    def on(self, event, listener):
-        if event not in self.listeners:
-            self.listeners[event] = []
-        self.listeners[event].append(listener)
+        return wrapper
         
     def emit(self, event_name, *args):
-        if event_name not in self.handlers:
+        if event_name not in self._listeners:
             return
 
-        for handler in self.handlers[event_name]:
-            handler(*args)
+        for listener in self._listeners[event_name]:
+            listener(*args)
 
 class Socket:
     SOCKET_TYPE = zmq.DEALER
@@ -28,8 +36,9 @@ class Socket:
     def __init__(self, address):
         self.context = zmq.Context()
         self.socket = self.context.socket(Socket.SOCKET_TYPE)
+        self.address = address;
         self.socket.connect(address)
-        self.emitter = EventEmitter()
+        self.emitter = Emitter()
         self.running = False
         self.thread = None
 
