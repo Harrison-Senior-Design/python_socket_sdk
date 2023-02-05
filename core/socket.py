@@ -1,7 +1,10 @@
 import zmq
 import threading
+import datetime
 
 from google.protobuf.any_pb2 import Any
+from google.protobuf.empty_pb2 import Empty
+from google.protobuf.timestamp_pb2 import Timestamp
 
 from ..core.protobuf_files.generated import main_pb2 as main_proto
 from ..core.protobuf_files.generated import hardwareMessages_pb2 as hardware_proto
@@ -56,6 +59,10 @@ class Socket:
         self.poller = zmq.Poller()
         self.poller.register(self.socket, zmq.POLLIN)
 
+    def identify(self):
+        print("Identifying")
+        self.send_message(main_proto.OperationCode.IDENTIFY)
+
     def start(self):
         self.running = True
         self.thread = threading.Thread(target=self._receive)
@@ -63,7 +70,7 @@ class Socket:
 
     def stop(self):
         self.running = False
-        print("Shutting down recv thread (takes up to 4000ms)")
+        print("Shutting down recv thread (takes up to 1000ms)")
         self.thread.join()
 
     def cleanup(self):
@@ -76,7 +83,7 @@ class Socket:
 
     def _receive(self):
         while self.running:
-            socks = dict(self.poller.poll(4000))
+            socks = dict(self.poller.poll(1000))
 
             if not self.running:
                 return
@@ -90,11 +97,10 @@ class Socket:
         if len(multipart_msg) < 2:
             return
 
-        print("Full message: ", multipart_msg)
         message = multipart_msg[1]
 
         wrapper = main_proto.Wrapper()
-        wrapper.ParseFromString(message[0])
+        wrapper.ParseFromString(message)
         
         if wrapper.opcode == main_proto.OperationCode.ANGLE_DATA:
             payload = simulation_proto.AnglePayload()
@@ -107,12 +113,22 @@ class Socket:
         else:
             self.emitter.emit("unknown_payload", wrapper)
     
-    def send_message(self, opcode, payload):
+    def send_message(self, opcode, payload=None):
+        if payload is None:
+            payload = Empty()
+
+        timestamp = Timestamp()
+        now = datetime.datetime.now()
+        timestamp.FromDatetime(now)
+
+        payload = Any(value=payload.SerializeToString())
+
         wrapper = main_proto.Wrapper(
             opcode=opcode,
-            timestamp=0,
-            payload=Any(value=payload.SerializeToString())
+            timestamp=timestamp,
+            payload=payload
         )
 
-        self.socket.send_multipart(wrapper.SerializeToString())
+        serialized_wrapper = wrapper.SerializeToString()
+        self.socket.send_multipart([b'', serialized_wrapper])
         
